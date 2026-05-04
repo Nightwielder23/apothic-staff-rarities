@@ -1,0 +1,18 @@
+{
+  "conditions": [
+    { "type": "forge:mod_loaded", "modid": "irons_spellbooks" },
+    { "type": "forge:mod_loaded", "modid": "apotheotic_additions" }
+  ],
+  "type": "fallen_gems_affixes:autocast",
+  "trigger_spell": "irons_spellbooks:ice_block",
+  "spell": "irons_spellbooks:ice_spikes",
+  "cooldown_between_casts": 2,
+  "target": "TARGET",
+  "cooldown": 600,
+  "values": {
+    "apotheotic_additions:heirloom": { "level": { "min": 4, "max": 7 },  "cooldown": 300 },
+    "apotheotic_additions:artifact": { "level": { "min": 7, "max": 11 }, "cooldown": 128 },
+    "apotheotic_additions:esoteric": { "level": { "min": 8, "max": 13 }, "cooldown": 113 }
+  },
+  "types": ["staffs"]
+}

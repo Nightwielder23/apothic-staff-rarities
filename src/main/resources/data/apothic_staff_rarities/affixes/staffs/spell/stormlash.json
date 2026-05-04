@@ -1,0 +1,16 @@
+{
+  "conditions": [
+    { "type": "forge:mod_loaded", "modid": "irons_spellbooks" },
+    { "type": "forge:mod_loaded", "modid": "apotheotic_additions" }
+  ],
+  "type": "fallen_gems_affixes:spell_cast",
+  "spell": "irons_spellbooks:chain_lightning",
+  "trigger": "spell_damage",
+  "target": "TARGET",
+  "values": {
+    "apotheotic_additions:heirloom": { "level": { "min": 4, "max": 8 },  "cooldown": 300 },
+    "apotheotic_additions:artifact": { "level": { "min": 7, "max": 11 }, "cooldown": 128 },
+    "apotheotic_additions:esoteric": { "level": { "min": 8, "max": 13 }, "cooldown": 113 }
+  },
+  "types": ["staffs"]
+}

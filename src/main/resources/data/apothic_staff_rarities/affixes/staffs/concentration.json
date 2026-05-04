@@ -1,0 +1,13 @@
+{
+  "conditions": [
+    { "type": "forge:mod_loaded", "modid": "irons_spellbooks" },
+    { "type": "forge:mod_loaded", "modid": "apotheotic_additions" }
+  ],
+  "type": "fallen_gems_affixes:concentration",
+  "values": {
+    "apotheotic_additions:heirloom": true,
+    "apotheotic_additions:artifact": true,
+    "apotheotic_additions:esoteric": true
+  },
+  "types": ["staffs"]
+}

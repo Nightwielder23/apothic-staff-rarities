@@ -1,0 +1,27 @@
+{
+  "conditions": [
+    { "type": "forge:mod_loaded", "modid": "irons_spellbooks" },
+    { "type": "forge:mod_loaded", "modid": "apotheotic_additions" }
+  ],
+  "type": "fallen_gems_affixes:spell_effect",
+  "mob_effect": "minecraft:instant_health",
+  "target": "SPELL_HEAL_SELF",
+  "values": {
+    "apotheotic_additions:heirloom": {
+      "duration": 1,
+      "amplifier": { "min": 1, "steps": 1, "step": 1 },
+      "cooldown": 190
+    },
+    "apotheotic_additions:artifact": {
+      "duration": 1,
+      "amplifier": { "min": 1, "steps": 2, "step": 1 },
+      "cooldown": 170
+    },
+    "apotheotic_additions:esoteric": {
+      "duration": 1,
+      "amplifier": { "min": 1, "steps": 3, "step": 1 },
+      "cooldown": 140
+    }
+  },
+  "types": ["staffs"]
+}
