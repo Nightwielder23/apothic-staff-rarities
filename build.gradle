@@ -69,6 +69,7 @@ dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
 
     compileOnly fg.deobf("dev.shadowsoffire:Apotheosis:${minecraft_version}-${apotheosis_version}")
+    compileOnly fg.deobf("dev.shadowsoffire:Placebo:${minecraft_version}-${placebo_version}")
 }
 
 tasks.named('processResources', ProcessResources).configure {
