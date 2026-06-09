@@ -83,15 +83,15 @@ public final class AffixOverrideHandler {
         return report;
     }
 
-    private static void clearSnapshots() {
-        snapshots.clear();
-    }
-
     private static void captureNewAffixes() {
         final Set<ResourceLocation> liveIds = new HashSet<>(AffixRegistry.INSTANCE.getKeys());
         for (final ResourceLocation id : liveIds) {
-            if (!ApothicStaffRarities.MODID.equals(id.getNamespace())) continue;
-            if (snapshots.containsKey(id)) continue;
+            if (!ApothicStaffRarities.MODID.equals(id.getNamespace())) {
+                continue;
+            }
+            if (snapshots.containsKey(id)) {
+                continue;
+            }
             final Affix affix = AffixRegistry.INSTANCE.getValue(id);
             if (affix == null) {
                 ApothicStaffRarities.LOGGER.warn("Registry key {} present but getValue returned null", id);
@@ -103,7 +103,7 @@ public final class AffixOverrideHandler {
                     ApothicStaffRarities.LOGGER.warn("No 'values' field on {} (class {})", id, affix.getClass().getName());
                     continue;
                 }
-                @SuppressWarnings("unchecked")
+                @SuppressWarnings("unchecked") // reflective read erases the value type
                 final Map<LootRarity, Object> liveValues = (Map<LootRarity, Object>) ReflectionAccess.getField(valuesField, affix);
                 snapshots.put(id, new AffixSnapshot(affix, valuesField, new LinkedHashMap<>(liveValues)));
             } catch (final Exception e) {
@@ -114,7 +114,9 @@ public final class AffixOverrideHandler {
 
     private static void applyOne(final ResourceLocation id, final AffixSnapshot snapshot, final ReloadReport report) throws Exception {
         final AffixDescriptor descriptor = parseDescriptorFromId(id);
-        if (descriptor == null) return;
+        if (descriptor == null) {
+            return;
+        }
         if (ApothicStaffRaritiesConfig.isCategoryDisabled(descriptor.category())) {
             ReflectionAccess.setField(snapshot.valuesField, snapshot.affix, new LinkedHashMap<>());
             report.bumpDisabled(descriptor.category());
@@ -239,7 +241,9 @@ public final class AffixOverrideHandler {
 
     private static String resolveRarityShortName(final LootRarity rarity) {
         final ResourceLocation id = RarityRegistry.INSTANCE.getKey(rarity);
-        if (id == null || !AA_NAMESPACE.equals(id.getNamespace())) return null;
+        if (id == null || !AA_NAMESPACE.equals(id.getNamespace())) {
+            return null;
+        }
         final String path = id.getPath();
         return switch (path) {
             case ApothicStaffRaritiesConfig.RARITY_HEIRLOOM,
@@ -251,7 +255,9 @@ public final class AffixOverrideHandler {
 
     private static AffixDescriptor parseDescriptorFromId(final ResourceLocation id) {
         final String[] parts = id.getPath().split("/");
-        if (parts.length < 2 || !"staffs".equals(parts[0])) return null;
+        if (parts.length < 2 || !"staffs".equals(parts[0])) {
+            return null;
+        }
         if (parts.length == 2) {
             return ApothicStaffRaritiesConfig.findAffix(parts[1], parts[1]).orElse(null);
         }
@@ -318,7 +324,7 @@ public final class AffixOverrideHandler {
                     .thenCompose(barrier::wait)
                     .thenRunAsync(() -> {
                         // A datapack reload recreates the affixes, so re-apply without recording the signature, leaving the first manual reload to report a change.
-                        clearSnapshots();
+                        snapshots.clear();
                         ApothicStaffRaritiesConfig.load();
                         applyAll();
                     }, gameExecutor);

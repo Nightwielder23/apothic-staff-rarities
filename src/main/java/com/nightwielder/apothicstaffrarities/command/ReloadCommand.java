@@ -50,7 +50,7 @@ public final class ReloadCommand {
         builder.append("Apothic Staff Rarities: reloaded, applied to ")
                 .append(applied)
                 .append(' ')
-                .append(pluralize(applied, "affix", "affixes"));
+                .append(applied == 1 ? "affix" : "affixes");
         if (disabled > 0) {
             builder.append(", disabled ").append(disabled);
         }
@@ -59,9 +59,5 @@ public final class ReloadCommand {
         }
         builder.append('.');
         return builder.toString();
-    }
-
-    private static String pluralize(final int count, final String singular, final String plural) {
-        return count == 1 ? singular : plural;
     }
 }

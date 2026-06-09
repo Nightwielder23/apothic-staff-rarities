@@ -1,18 +1,12 @@
-# Build output
 build/
 out/
 .gradle/
-
-# Run directories
 run/
 run-data/
 
-# IntelliJ IDEA
 .idea/
 *.iml
 *.ipr
 *.iws
 
-# OS files
-.DS_Store
 Thumbs.db

@@ -1,6 +1,6 @@
 # Apothic Staff Rarities
 
-Datapack-driven extension that brings Fallen Gems and Affixes' staff affixes to Apotheotic Additions' post-mythic rarities (Heirloom, Artifact, Esoteric).
+Datapack-driven extension that brings Fallen Gems and Affixes' staff affixes to Apotheotic Additions' rarities (Heirloom, Artifact, Esoteric).
 
 FG&A's staff affixes define values only through the base rarities, up to ancient; none of them declare the Apotheotic Additions tiers. Apothic Staff Rarities adds those tiers. The 30 added affix entries cover:
 

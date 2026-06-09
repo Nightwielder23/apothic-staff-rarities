@@ -101,11 +101,13 @@ public final class ApothicStaffRaritiesConfig {
     }
 
     public static List<String> getDisabledCategories() {
-        final List<String> result = new ArrayList<>();
+        final List<String> disabled = new ArrayList<>();
         for (final Map.Entry<String, Boolean> entry : disabledCategories.entrySet()) {
-            if (Boolean.TRUE.equals(entry.getValue())) result.add(entry.getKey());
+            if (Boolean.TRUE.equals(entry.getValue())) {
+                disabled.add(entry.getKey());
+            }
         }
-        return result;
+        return disabled;
     }
 
     public static String signature() {
@@ -187,10 +189,14 @@ public final class ApothicStaffRaritiesConfig {
             for (final String rarity : AA_RARITIES) {
                 final String sectionPath = "overrides." + ConfigDefaults.tomlAffixPath(descriptor) + "." + rarity;
                 final Object raw = config.get(sectionPath);
-                if (!(raw instanceof UnmodifiableConfig section)) continue;
+                if (!(raw instanceof UnmodifiableConfig section)) {
+                    continue;
+                }
                 final Map<String, Object> fields = new LinkedHashMap<>();
                 for (final UnmodifiableConfig.Entry entry : section.entrySet()) {
-                    if (isUnsetValue(entry.getKey(), entry.getValue())) continue;
+                    if (isUnsetValue(entry.getKey(), entry.getValue())) {
+                        continue;
+                    }
                     fields.put(entry.getKey(), entry.getValue());
                 }
                 if (!fields.isEmpty()) {
@@ -218,7 +224,9 @@ public final class ApothicStaffRaritiesConfig {
     }
 
     private static void ensureDefaultFile(final Path path) {
-        if (Files.exists(path)) return;
+        if (Files.exists(path)) {
+            return;
+        }
         try {
             Files.createDirectories(path.getParent());
             Files.writeString(path, ConfigDefaults.build(ALL_AFFIXES, DISABLE_CATEGORIES, AA_RARITIES));
@@ -247,7 +255,7 @@ public final class ApothicStaffRaritiesConfig {
         addMobEffect(list, "ivy_laced", false, true);
         addMobEffect(list, "revitalizing", true, true);
         addMobEffect(list, "satanic", false, true);
-        addMobEffect(list, "sophisticated", true, true);
+        addMobEffect(list, "sophisticated", false, true);
         addMobEffect(list, "swift", true, true);
         addMobEffect(list, "weakening", false, true);
         addMobEffect(list, "withering", false, false);
