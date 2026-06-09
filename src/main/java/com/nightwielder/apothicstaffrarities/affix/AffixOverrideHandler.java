@@ -1,8 +1,6 @@
 package com.nightwielder.apothicstaffrarities.affix;
 
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -10,6 +8,8 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalDouble;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -39,22 +39,34 @@ public final class AffixOverrideHandler {
     private static final String AA_NAMESPACE = "apotheotic_additions";
 
     private static final Map<ResourceLocation, AffixSnapshot> snapshots = new HashMap<>();
+    private static String lastAppliedSignature;
 
     private AffixOverrideHandler() {}
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onAddReloadListeners(final AddReloadListenerEvent event) {
+        // LOWEST so this listener registers after FG&A's affix registry, which puts the post-barrier apply after the affixes are loaded.
         event.addListener(new ApplyAfterAffixesListener());
     }
 
     public static ReloadReport reloadAndApply() {
         ApothicStaffRaritiesConfig.load();
-        return applyAll();
+        // signature() runs after load(), so an edited file always differs from lastAppliedSignature and re-applies.
+        final String signature = ApothicStaffRaritiesConfig.signature();
+        if (!snapshots.isEmpty() && signature.equals(lastAppliedSignature)) {
+            final ReloadReport unchanged = new ReloadReport();
+            unchanged.markNoChanges();
+            ApothicStaffRarities.LOGGER.info("Apothic Staff Rarities override pass: config unchanged since last apply");
+            return unchanged;
+        }
+        final ReloadReport report = applyAll();
+        lastAppliedSignature = signature;
+        return report;
     }
 
     private static ReloadReport applyAll() {
         final ReloadReport report = new ReloadReport();
-        if (!ModList.get().isLoaded("apotheosis")) {
+        if (!ModList.get().isLoaded(ApothicStaffRarities.APOTHEOSIS)) {
             return report;
         }
         captureNewAffixes();
@@ -66,7 +78,6 @@ public final class AffixOverrideHandler {
                 report.addWarning(entry.getKey() + ": " + e.getMessage());
             }
         }
-        report.setDisabledCategoriesFromConfig(ApothicStaffRaritiesConfig.getDisabledCategories());
         ApothicStaffRarities.LOGGER.info("Apothic Staff Rarities override pass: applied={}, disabled={}, warnings={}",
                 report.totalApplied(), report.totalDisabled(), report.warnings().size());
         return report;
@@ -87,14 +98,13 @@ public final class AffixOverrideHandler {
                 continue;
             }
             try {
-                final Field valuesField = findFieldUp(affix.getClass(), VALUES_FIELD_NAME);
+                final Field valuesField = ReflectionAccess.findFieldUp(affix.getClass(), VALUES_FIELD_NAME);
                 if (valuesField == null) {
                     ApothicStaffRarities.LOGGER.warn("No 'values' field on {} (class {})", id, affix.getClass().getName());
                     continue;
                 }
-                valuesField.setAccessible(true);
                 @SuppressWarnings("unchecked")
-                final Map<LootRarity, Object> liveValues = (Map<LootRarity, Object>) valuesField.get(affix);
+                final Map<LootRarity, Object> liveValues = (Map<LootRarity, Object>) ReflectionAccess.getField(valuesField, affix);
                 snapshots.put(id, new AffixSnapshot(affix, valuesField, new LinkedHashMap<>(liveValues)));
             } catch (final Exception e) {
                 ApothicStaffRarities.LOGGER.warn("Could not snapshot affix {}", id, e);
@@ -106,16 +116,16 @@ public final class AffixOverrideHandler {
         final AffixDescriptor descriptor = parseDescriptorFromId(id);
         if (descriptor == null) return;
         if (ApothicStaffRaritiesConfig.isCategoryDisabled(descriptor.category())) {
-            writeValuesField(snapshot, new LinkedHashMap<>());
+            ReflectionAccess.setField(snapshot.valuesField, snapshot.affix, new LinkedHashMap<>());
             report.bumpDisabled(descriptor.category());
             return;
         }
         final Map<LootRarity, Object> rebuilt = rebuildValuesMap(descriptor, snapshot.originalValues);
-        writeValuesField(snapshot, rebuilt);
+        ReflectionAccess.setField(snapshot.valuesField, snapshot.affix, rebuilt);
         report.bumpApplied(descriptor.category());
     }
 
-    private static Map<LootRarity, Object> rebuildValuesMap(final AffixDescriptor descriptor, final Map<LootRarity, Object> originals) throws Exception {
+    private static Map<LootRarity, Object> rebuildValuesMap(final AffixDescriptor descriptor, final Map<LootRarity, Object> originals) {
         final Map<LootRarity, Object> rebuilt = new LinkedHashMap<>();
         for (final Map.Entry<LootRarity, Object> entry : originals.entrySet()) {
             final String rarityName = resolveRarityShortName(entry.getKey());
@@ -151,37 +161,37 @@ public final class AffixOverrideHandler {
     }
 
     private static Object rebuildTriggerData(final AffixDescriptor descriptor, final String rarityName, final Object original) throws Exception {
-        final Object levelRange = invokeAccessor(original, "level");
-        final int defaultMin = (int) invokeAccessor(levelRange, "min");
-        final int defaultMax = (int) invokeAccessor(levelRange, "max");
-        final int defaultCooldown = (int) invokeAccessor(original, "cooldown");
+        final Object levelRange = ReflectionAccess.invokeAccessor(original, "level");
+        final int defaultMin = (int) ReflectionAccess.invokeAccessor(levelRange, "min");
+        final int defaultMax = (int) ReflectionAccess.invokeAccessor(levelRange, "max");
+        final int defaultCooldown = (int) ReflectionAccess.invokeAccessor(original, "cooldown");
         final double multiplier = ApothicStaffRaritiesConfig.multiplierFor(rarityName);
-        final int finalMin = resolveScaledInt(descriptor, rarityName, ApothicStaffRaritiesConfig.FIELD_LEVEL_MIN, defaultMin, multiplier);
-        final int finalMax = resolveScaledInt(descriptor, rarityName, ApothicStaffRaritiesConfig.FIELD_LEVEL_MAX, defaultMax, multiplier);
-        final int finalCooldown = resolveScaledInt(descriptor, rarityName, ApothicStaffRaritiesConfig.FIELD_COOLDOWN, defaultCooldown, multiplier);
+        final int finalMin = nonNeg(resolveScaledInt(descriptor, rarityName, ApothicStaffRaritiesConfig.FIELD_LEVEL_MIN, defaultMin, multiplier));
+        final int finalMax = nonNeg(resolveScaledInt(descriptor, rarityName, ApothicStaffRaritiesConfig.FIELD_LEVEL_MAX, defaultMax, multiplier));
+        final int finalCooldown = nonNeg(resolveScaledInt(descriptor, rarityName, ApothicStaffRaritiesConfig.FIELD_COOLDOWN, defaultCooldown, multiplier));
         final Class<?> levelRangeClass = levelRange.getClass();
-        final Object newLevelRange = constructInstance(levelRangeClass, new Class<?>[]{int.class, int.class}, finalMin, finalMax);
+        final Object newLevelRange = ReflectionAccess.constructInstance(levelRangeClass, new Class<?>[]{int.class, int.class}, finalMin, finalMax);
         final Class<?> triggerDataClass = original.getClass();
-        return constructInstance(triggerDataClass, new Class<?>[]{levelRangeClass, int.class}, newLevelRange, finalCooldown);
+        return ReflectionAccess.constructInstance(triggerDataClass, new Class<?>[]{levelRangeClass, int.class}, newLevelRange, finalCooldown);
     }
 
     private static Object rebuildEffectData(final AffixDescriptor descriptor, final String rarityName, final Object original) throws Exception {
-        final StepFunction defaultDuration = (StepFunction) invokeAccessor(original, "duration");
-        final StepFunction defaultAmplifier = (StepFunction) invokeAccessor(original, "amplifier");
-        final int defaultCooldown = (int) invokeAccessor(original, "cooldown");
+        final StepFunction defaultDuration = (StepFunction) ReflectionAccess.invokeAccessor(original, "duration");
+        final StepFunction defaultAmplifier = (StepFunction) ReflectionAccess.invokeAccessor(original, "amplifier");
+        final int defaultCooldown = (int) ReflectionAccess.invokeAccessor(original, "cooldown");
         final double multiplier = ApothicStaffRaritiesConfig.multiplierFor(rarityName);
         final StepFunction newDuration = resolveScaledStepFunction(descriptor, rarityName, defaultDuration, multiplier,
                 ApothicStaffRaritiesConfig.FIELD_DURATION_MIN,
                 ApothicStaffRaritiesConfig.FIELD_DURATION_STEPS,
-                ApothicStaffRaritiesConfig.FIELD_DURATION_STEP);
+                ApothicStaffRaritiesConfig.FIELD_DURATION_STEP, false);
         final StepFunction newAmplifier = resolveScaledStepFunction(descriptor, rarityName, defaultAmplifier, multiplier,
                 ApothicStaffRaritiesConfig.FIELD_AMPLIFIER,
                 ApothicStaffRaritiesConfig.FIELD_AMPLIFIER_STEPS,
-                ApothicStaffRaritiesConfig.FIELD_AMPLIFIER_STEP);
+                ApothicStaffRaritiesConfig.FIELD_AMPLIFIER_STEP, !descriptor.amplifierIsObject());
         final int newCooldown = descriptor.hasCooldown()
-                ? resolveScaledInt(descriptor, rarityName, ApothicStaffRaritiesConfig.FIELD_COOLDOWN, defaultCooldown, multiplier)
+                ? nonNeg(resolveScaledInt(descriptor, rarityName, ApothicStaffRaritiesConfig.FIELD_COOLDOWN, defaultCooldown, multiplier))
                 : defaultCooldown;
-        return constructInstance(original.getClass(),
+        return ReflectionAccess.constructInstance(original.getClass(),
                 new Class<?>[]{StepFunction.class, StepFunction.class, int.class},
                 newDuration, newAmplifier, newCooldown);
     }
@@ -198,27 +208,33 @@ public final class AffixOverrideHandler {
         return resolveScaledStepFunction(descriptor, rarityName, defaults, multiplier,
                 ApothicStaffRaritiesConfig.FIELD_MIN,
                 ApothicStaffRaritiesConfig.FIELD_STEPS,
-                ApothicStaffRaritiesConfig.FIELD_STEP);
+                ApothicStaffRaritiesConfig.FIELD_STEP, false);
     }
 
     private static StepFunction resolveScaledStepFunction(final AffixDescriptor descriptor, final String rarityName, final StepFunction defaults, final double multiplier,
-                                                          final String minField, final String stepsField, final String stepField) {
-        final float scaledMin = (float) (defaults.min() * multiplier);
-        final int scaledSteps = (int) Math.round(defaults.steps() * multiplier);
-        final float scaledStep = (float) (defaults.step() * multiplier);
-        final double overrideMin = ApothicStaffRaritiesConfig.overrideDouble(descriptor.category(), descriptor.name(), rarityName, minField);
-        final int overrideSteps = ApothicStaffRaritiesConfig.overrideInt(descriptor.category(), descriptor.name(), rarityName, stepsField);
-        final double overrideStep = ApothicStaffRaritiesConfig.overrideDouble(descriptor.category(), descriptor.name(), rarityName, stepField);
-        final float finalMin = overrideMin >= 0.0 ? (float) overrideMin : scaledMin;
-        final int finalSteps = overrideSteps >= 0 ? overrideSteps : scaledSteps;
-        final float finalStep = overrideStep >= 0.0 ? (float) overrideStep : scaledStep;
-        return new StepFunction(finalMin, finalSteps, finalStep);
+                                                          final String minField, final String stepsField, final String stepField, final boolean scaleConstant) {
+        final float scaledMin = scaleConstant ? (float) Math.round(defaults.min() * multiplier) : defaults.min();
+        final float scaledStep = scaleConstant ? defaults.step() : (float) (defaults.step() * multiplier);
+        final OptionalDouble overrideMin = ApothicStaffRaritiesConfig.overrideDouble(descriptor.category(), descriptor.name(), rarityName, minField);
+        final OptionalInt overrideSteps = ApothicStaffRaritiesConfig.overrideInt(descriptor.category(), descriptor.name(), rarityName, stepsField);
+        final OptionalDouble overrideStep = ApothicStaffRaritiesConfig.overrideDouble(descriptor.category(), descriptor.name(), rarityName, stepField);
+        final float finalMin = overrideMin.isPresent() ? (float) overrideMin.getAsDouble() : scaledMin;
+        final int finalSteps = overrideSteps.isPresent() ? overrideSteps.getAsInt() : defaults.steps();
+        final float finalStep = overrideStep.isPresent() ? (float) overrideStep.getAsDouble() : scaledStep;
+        return new StepFunction(nonNeg(finalMin), nonNeg(finalSteps), nonNeg(finalStep));
     }
 
     private static int resolveScaledInt(final AffixDescriptor descriptor, final String rarityName, final String field, final int defaultValue, final double multiplier) {
-        final int scaled = (int) Math.round(defaultValue * multiplier);
-        final int override = ApothicStaffRaritiesConfig.overrideInt(descriptor.category(), descriptor.name(), rarityName, field);
-        return override >= 0 ? override : scaled;
+        final OptionalInt override = ApothicStaffRaritiesConfig.overrideInt(descriptor.category(), descriptor.name(), rarityName, field);
+        return override.isPresent() ? override.getAsInt() : (int) Math.round(defaultValue * multiplier);
+    }
+
+    private static int nonNeg(final int value) {
+        return Math.max(0, value);
+    }
+
+    private static float nonNeg(final float value) {
+        return Math.max(0.0f, value);
     }
 
     private static String resolveRarityShortName(final LootRarity rarity) {
@@ -242,34 +258,6 @@ public final class AffixOverrideHandler {
         return ApothicStaffRaritiesConfig.findAffix(parts[1], parts[2]).orElse(null);
     }
 
-    private static Field findFieldUp(final Class<?> startingClass, final String fieldName) {
-        Class<?> current = startingClass;
-        while (current != null && current != Object.class) {
-            try {
-                return current.getDeclaredField(fieldName);
-            } catch (final NoSuchFieldException ignored) {
-                current = current.getSuperclass();
-            }
-        }
-        return null;
-    }
-
-    private static Object invokeAccessor(final Object target, final String methodName) throws Exception {
-        final Method method = target.getClass().getMethod(methodName);
-        return method.invoke(target);
-    }
-
-    private static Object constructInstance(final Class<?> cls, final Class<?>[] parameterTypes, final Object... arguments) throws Exception {
-        final Constructor<?> constructor = cls.getDeclaredConstructor(parameterTypes);
-        constructor.setAccessible(true);
-        return constructor.newInstance(arguments);
-    }
-
-    private static void writeValuesField(final AffixSnapshot snapshot, final Map<LootRarity, Object> newValues) throws IllegalAccessException {
-        snapshot.valuesField.setAccessible(true);
-        snapshot.valuesField.set(snapshot.affix, newValues);
-    }
-
     private static final class AffixSnapshot {
         private final Affix affix;
         private final Field valuesField;
@@ -285,20 +273,8 @@ public final class AffixOverrideHandler {
     public static final class ReloadReport {
         private final Map<String, Integer> appliedByCategory = new LinkedHashMap<>();
         private final Map<String, Integer> disabledByCategory = new LinkedHashMap<>();
-        private final List<String> disabledCategoriesFromConfig = new ArrayList<>();
         private final List<String> warnings = new ArrayList<>();
-
-        public Map<String, Integer> appliedByCategory() {
-            return Collections.unmodifiableMap(appliedByCategory);
-        }
-
-        public Map<String, Integer> disabledByCategory() {
-            return Collections.unmodifiableMap(disabledByCategory);
-        }
-
-        public List<String> disabledCategoriesFromConfig() {
-            return Collections.unmodifiableList(disabledCategoriesFromConfig);
-        }
+        private boolean noChanges;
 
         public List<String> warnings() {
             return Collections.unmodifiableList(warnings);
@@ -310,6 +286,10 @@ public final class AffixOverrideHandler {
 
         public int totalDisabled() {
             return disabledByCategory.values().stream().mapToInt(Integer::intValue).sum();
+        }
+
+        public boolean noChanges() {
+            return noChanges;
         }
 
         private void bumpApplied(final String category) {
@@ -324,9 +304,8 @@ public final class AffixOverrideHandler {
             warnings.add(message);
         }
 
-        private void setDisabledCategoriesFromConfig(final List<String> categories) {
-            disabledCategoriesFromConfig.clear();
-            disabledCategoriesFromConfig.addAll(categories);
+        private void markNoChanges() {
+            noChanges = true;
         }
     }
 
@@ -338,8 +317,10 @@ public final class AffixOverrideHandler {
             return CompletableFuture.<Void>supplyAsync(() -> null, backgroundExecutor)
                     .thenCompose(barrier::wait)
                     .thenRunAsync(() -> {
+                        // A datapack reload recreates the affixes, so re-apply without recording the signature, leaving the first manual reload to report a change.
                         clearSnapshots();
-                        reloadAndApply();
+                        ApothicStaffRaritiesConfig.load();
+                        applyAll();
                     }, gameExecutor);
         }
 

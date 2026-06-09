@@ -1,7 +1,5 @@
 package com.nightwielder.apothicstaffrarities.command;
 
-import java.util.Map;
-
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.tree.LiteralCommandNode;
@@ -10,6 +8,7 @@ import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraftforge.fml.ModList;
 
+import com.nightwielder.apothicstaffrarities.ApothicStaffRarities;
 import com.nightwielder.apothicstaffrarities.affix.AffixOverrideHandler;
 
 public final class ReloadCommand {
@@ -30,7 +29,7 @@ public final class ReloadCommand {
     }
 
     private static int runReload(final CommandSourceStack source) {
-        if (!ModList.get().isLoaded("apotheosis")) {
+        if (!ModList.get().isLoaded(ApothicStaffRarities.APOTHEOSIS)) {
             source.sendFailure(Component.literal("Apotheosis is not loaded; nothing to apply."));
             return 0;
         }
@@ -41,44 +40,25 @@ public final class ReloadCommand {
     }
 
     private static String formatReport(final AffixOverrideHandler.ReloadReport report) {
+        if (report.noChanges()) {
+            return "Apothic Staff Rarities: config unchanged.";
+        }
         final int applied = report.totalApplied();
         final int disabled = report.totalDisabled();
+        final int warnings = report.warnings().size();
         final StringBuilder builder = new StringBuilder();
-        builder.append("Apothic Staff Rarities: applied overrides to ")
+        builder.append("Apothic Staff Rarities: reloaded, applied to ")
                 .append(applied)
-                .append(" affix ")
-                .append(pluralize(applied, "entry", "entries"));
-        appendCategoryBreakdown(builder, report.appliedByCategory());
-        builder.append('.');
+                .append(' ')
+                .append(pluralize(applied, "affix", "affixes"));
         if (disabled > 0) {
-            builder.append(" Disabled ")
-                    .append(disabled)
-                    .append(' ')
-                    .append(pluralize(disabled, "entry", "entries"));
-            appendCategoryBreakdown(builder, report.disabledByCategory());
-            builder.append('.');
+            builder.append(", disabled ").append(disabled);
         }
-        if (!report.disabledCategoriesFromConfig().isEmpty()) {
-            builder.append(" Disable toggles active: ")
-                    .append(String.join(", ", report.disabledCategoriesFromConfig()))
-                    .append('.');
+        if (warnings > 0) {
+            builder.append(", ").append(warnings).append(" warnings");
         }
-        if (!report.warnings().isEmpty()) {
-            builder.append(" Warnings: ").append(report.warnings().size()).append(" (see log).");
-        }
+        builder.append('.');
         return builder.toString();
-    }
-
-    private static void appendCategoryBreakdown(final StringBuilder builder, final Map<String, Integer> counts) {
-        if (counts.isEmpty()) return;
-        builder.append(" (");
-        boolean first = true;
-        for (final Map.Entry<String, Integer> entry : counts.entrySet()) {
-            if (!first) builder.append(", ");
-            builder.append(entry.getKey()).append(": ").append(entry.getValue());
-            first = false;
-        }
-        builder.append(")");
     }
 
     private static String pluralize(final int count, final String singular, final String plural) {

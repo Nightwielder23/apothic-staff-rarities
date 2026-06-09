@@ -3,7 +3,7 @@ build/
 out/
 .gradle/
 
-# Run directory
+# Run directories
 run/
 run-data/
 
@@ -13,29 +13,6 @@ run-data/
 *.ipr
 *.iws
 
-# Eclipse
-bin/
-*.launch
-.settings/
-.metadata/
-.classpath
-.project
-
 # OS files
 .DS_Store
 Thumbs.db
-
-# Logs & crash reports
-logs/
-crash-reports/
-
-# Server / world data
-saves/
-world/
-server.properties
-whitelist.json
-banned-players.json
-banned-ips.json
-ops.json
-usercache.json
-eula.txt

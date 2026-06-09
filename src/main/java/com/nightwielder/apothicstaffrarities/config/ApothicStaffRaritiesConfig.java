@@ -8,6 +8,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalDouble;
+import java.util.OptionalInt;
 
 import com.electronwill.nightconfig.core.UnmodifiableConfig;
 import com.electronwill.nightconfig.core.file.CommentedFileConfig;
@@ -53,8 +55,10 @@ public final class ApothicStaffRaritiesConfig {
     public static final String FIELD_STEPS = "steps";
     public static final String FIELD_STEP = "step";
 
-    private static final int SENTINEL_INT = -1;
-    private static final double SENTINEL_DOUBLE = -1.0;
+    public static final double MULTIPLIER_FLOOR = 0.01;
+    public static final double MULTIPLIER_CEILING = 100.0;
+
+    private static final double LEGACY_UNSET = -1.0;
 
     public record AffixDescriptor(String name, String category, boolean amplifierIsObject, boolean hasCooldown) {
         public boolean isMisc() {
@@ -104,14 +108,24 @@ public final class ApothicStaffRaritiesConfig {
         return result;
     }
 
-    public static int overrideInt(final String category, final String affixName, final String rarity, final String field) {
-        final Object raw = lookupOverride(category, affixName, rarity, field);
-        return raw instanceof Number n ? n.intValue() : SENTINEL_INT;
+    public static String signature() {
+        final StringBuilder builder = new StringBuilder();
+        builder.append(heirloomMultiplier).append(',')
+                .append(artifactMultiplier).append(',')
+                .append(esotericMultiplier).append(';')
+                .append(getDisabledCategories()).append(';')
+                .append(overrideTable);
+        return builder.toString();
     }
 
-    public static double overrideDouble(final String category, final String affixName, final String rarity, final String field) {
+    public static OptionalInt overrideInt(final String category, final String affixName, final String rarity, final String field) {
         final Object raw = lookupOverride(category, affixName, rarity, field);
-        return raw instanceof Number n ? n.doubleValue() : SENTINEL_DOUBLE;
+        return raw instanceof Number n ? OptionalInt.of(n.intValue()) : OptionalInt.empty();
+    }
+
+    public static OptionalDouble overrideDouble(final String category, final String affixName, final String rarity, final String field) {
+        final Object raw = lookupOverride(category, affixName, rarity, field);
+        return raw instanceof Number n ? OptionalDouble.of(n.doubleValue()) : OptionalDouble.empty();
     }
 
     public static boolean overrideBool(final String category, final String affixName, final String rarity, final String field, final boolean fallback) {
@@ -126,6 +140,7 @@ public final class ApothicStaffRaritiesConfig {
             try {
                 config.load();
             } catch (final ParsingException e) {
+                // NightConfig throws this on a trailing-EOF read of an otherwise valid file; the parsed data is still usable.
                 if (e.getMessage() != null && e.getMessage().contains("Not enough data available")) {
                     ApothicStaffRarities.LOGGER.debug("Tolerating trailing-EOF parse hiccup in {}: {}", FILE_NAME, e.getMessage());
                 } else {
@@ -150,9 +165,13 @@ public final class ApothicStaffRaritiesConfig {
     }
 
     private static void readScalingSection(final CommentedFileConfig config) {
-        heirloomMultiplier = readDouble(config, "scaling.heirloom_multiplier", 1.0);
-        artifactMultiplier = readDouble(config, "scaling.artifact_multiplier", 1.0);
-        esotericMultiplier = readDouble(config, "scaling.esoteric_multiplier", 1.0);
+        heirloomMultiplier = clampMultiplier(readDouble(config, "scaling.heirloom_multiplier", 1.0));
+        artifactMultiplier = clampMultiplier(readDouble(config, "scaling.artifact_multiplier", 1.0));
+        esotericMultiplier = clampMultiplier(readDouble(config, "scaling.esoteric_multiplier", 1.0));
+    }
+
+    private static double clampMultiplier(final double value) {
+        return Math.min(MULTIPLIER_CEILING, Math.max(MULTIPLIER_FLOOR, value));
     }
 
     private static void readDisableSection(final CommentedFileConfig config) {
@@ -166,11 +185,12 @@ public final class ApothicStaffRaritiesConfig {
         overrideTable.clear();
         for (final AffixDescriptor descriptor : ALL_AFFIXES) {
             for (final String rarity : AA_RARITIES) {
-                final String sectionPath = "overrides." + tomlAffixPath(descriptor) + "." + rarity;
+                final String sectionPath = "overrides." + ConfigDefaults.tomlAffixPath(descriptor) + "." + rarity;
                 final Object raw = config.get(sectionPath);
                 if (!(raw instanceof UnmodifiableConfig section)) continue;
                 final Map<String, Object> fields = new LinkedHashMap<>();
                 for (final UnmodifiableConfig.Entry entry : section.entrySet()) {
+                    if (isUnsetValue(entry.getKey(), entry.getValue())) continue;
                     fields.put(entry.getKey(), entry.getValue());
                 }
                 if (!fields.isEmpty()) {
@@ -178,6 +198,13 @@ public final class ApothicStaffRaritiesConfig {
                 }
             }
         }
+    }
+
+    private static boolean isUnsetValue(final String field, final Object value) {
+        if (FIELD_ENABLED.equals(field)) {
+            return Boolean.TRUE.equals(value);
+        }
+        return value instanceof Number n && n.doubleValue() == LEGACY_UNSET;
     }
 
     private static double readDouble(final CommentedFileConfig config, final String path, final double fallback) {
@@ -190,139 +217,14 @@ public final class ApothicStaffRaritiesConfig {
         return raw instanceof Boolean b ? b : fallback;
     }
 
-    private static String tomlAffixPath(final AffixDescriptor descriptor) {
-        return descriptor.isMisc()
-                ? "misc." + descriptor.name()
-                : descriptor.category() + "." + descriptor.name();
-    }
-
     private static void ensureDefaultFile(final Path path) {
         if (Files.exists(path)) return;
         try {
             Files.createDirectories(path.getParent());
-            Files.writeString(path, buildDefaultContents());
+            Files.writeString(path, ConfigDefaults.build(ALL_AFFIXES, DISABLE_CATEGORIES, AA_RARITIES));
         } catch (final IOException e) {
             ApothicStaffRarities.LOGGER.error("Failed to create default {}", FILE_NAME, e);
         }
-    }
-
-    private static String buildDefaultContents() {
-        final StringBuilder builder = new StringBuilder();
-        appendHeaderComment(builder);
-        appendScalingDefaults(builder);
-        appendDisableDefaults(builder);
-        appendOverrideDefaults(builder);
-        return builder.toString();
-    }
-
-    private static void appendHeaderComment(final StringBuilder builder) {
-        builder.append("# Apothic Staff Rarities: tuning for the staff affixes added at the\n");
-        builder.append("# Apotheotic Additions tiers (heirloom, artifact, esoteric).\n");
-        builder.append("#\n");
-        builder.append("# This config has two tiers; mix them as needed.\n");
-        builder.append("#\n");
-        builder.append("# Tier 1 ([scaling]): three rarity-wide multipliers. Each one multiplies\n");
-        builder.append("# every numeric value (cooldowns, durations, amplifiers, level ranges,\n");
-        builder.append("# step-function min/steps/step) on every AA-rarity affix entry of that\n");
-        builder.append("# rarity. Set 1.0 to keep the shipped defaults, 0.5 to halve, 2.0 to double.\n");
-        builder.append("#\n");
-        builder.append("# Tier 2 ([overrides]): per-affix, per-rarity, per-field absolute values.\n");
-        builder.append("# Every numeric field defaults to the sentinel -1 (or -1.0 for floats),\n");
-        builder.append("# which means 'use the shipped default, scaled by the tier 1 multiplier'.\n");
-        builder.append("# Any non-sentinel value replaces the scaled default outright; the tier 1\n");
-        builder.append("# multiplier no longer affects that field.\n");
-        builder.append("#\n");
-        builder.append("# [disable]: skip an entire affix category at AA rarities. Affixes in the\n");
-        builder.append("# disabled category get an empty rarity-values map at load, so they cannot\n");
-        builder.append("# roll on heirloom/artifact/esoteric. Affects only the AA entries this\n");
-        builder.append("# mod adds; FG&A's own common-through-ancient entries are untouched.\n");
-        builder.append("#\n");
-        builder.append("# Resolution order applied to each affix at load:\n");
-        builder.append("#   1. Read the default value from the shipped JSON.\n");
-        builder.append("#   2. If [disable.<category>] = true, drop the AA-tier rolls and stop.\n");
-        builder.append("#   3. Multiply the value by the tier 1 multiplier for that rarity.\n");
-        builder.append("#   4. If a tier 2 override for this field is not the sentinel, replace\n");
-        builder.append("#      the scaled value with the override.\n");
-        builder.append("#   5. Apply the final value to the live affix instance.\n");
-        builder.append("#\n");
-        builder.append("# Casual example: make every esoteric staff affix a touch stronger.\n");
-        builder.append("#   [scaling]\n");
-        builder.append("#   esoteric_multiplier = 1.25\n");
-        builder.append("#\n");
-        builder.append("# Power example: same global bump, plus a tighter cooldown on one affix.\n");
-        builder.append("#   [scaling]\n");
-        builder.append("#   esoteric_multiplier = 1.25\n");
-        builder.append("#   [overrides.autocast.acupuncture.esoteric]\n");
-        builder.append("#   cooldown = 90\n");
-        builder.append("#\n");
-        builder.append("# Edit this file then run /apothicstaffrarities reload (alias /asr reload,\n");
-        builder.append("# requires op level 2) to apply changes without restarting the server.\n");
-        builder.append("\n");
-    }
-
-    private static void appendScalingDefaults(final StringBuilder builder) {
-        builder.append("[scaling]\n");
-        builder.append("heirloom_multiplier = 1.0\n");
-        builder.append("artifact_multiplier = 1.0\n");
-        builder.append("esoteric_multiplier = 1.0\n");
-        builder.append("\n");
-    }
-
-    private static void appendDisableDefaults(final StringBuilder builder) {
-        builder.append("[disable]\n");
-        for (final String category : DISABLE_CATEGORIES) {
-            builder.append(category).append(" = false\n");
-        }
-        builder.append("\n");
-    }
-
-    private static void appendOverrideDefaults(final StringBuilder builder) {
-        builder.append("[overrides]\n");
-        builder.append("\n");
-        for (final AffixDescriptor descriptor : ALL_AFFIXES) {
-            for (final String rarity : AA_RARITIES) {
-                appendOverrideBlock(builder, descriptor, rarity);
-            }
-        }
-    }
-
-    private static void appendOverrideBlock(final StringBuilder builder, final AffixDescriptor descriptor, final String rarity) {
-        builder.append("[overrides.")
-                .append(tomlAffixPath(descriptor))
-                .append('.')
-                .append(rarity)
-                .append("]\n");
-        switch (descriptor.category()) {
-            case CATEGORY_AUTOCAST, CATEGORY_SPELL -> {
-                builder.append(FIELD_LEVEL_MIN).append(" = -1\n");
-                builder.append(FIELD_LEVEL_MAX).append(" = -1\n");
-                builder.append(FIELD_COOLDOWN).append(" = -1\n");
-            }
-            case CATEGORY_MOB_EFFECT -> {
-                builder.append(FIELD_DURATION_MIN).append(" = -1\n");
-                builder.append(FIELD_DURATION_STEPS).append(" = -1\n");
-                builder.append(FIELD_DURATION_STEP).append(" = -1\n");
-                builder.append(FIELD_AMPLIFIER).append(" = -1\n");
-                if (descriptor.amplifierIsObject()) {
-                    builder.append(FIELD_AMPLIFIER_STEPS).append(" = -1\n");
-                    builder.append(FIELD_AMPLIFIER_STEP).append(" = -1.0\n");
-                }
-                if (descriptor.hasCooldown()) {
-                    builder.append(FIELD_COOLDOWN).append(" = -1\n");
-                }
-            }
-            case CATEGORY_CONCENTRATION -> {
-                builder.append(FIELD_ENABLED).append(" = true\n");
-            }
-            case CATEGORY_COOLDOWN_RESET, CATEGORY_MANA_SHIELD -> {
-                builder.append(FIELD_MIN).append(" = -1\n");
-                builder.append(FIELD_STEPS).append(" = -1\n");
-                builder.append(FIELD_STEP).append(" = -1.0\n");
-            }
-            default -> {
-            }
-        }
-        builder.append("\n");
     }
 
     private static List<AffixDescriptor> buildAffixCatalog() {

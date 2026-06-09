@@ -27,7 +27,14 @@ description='''${mod_description}'''
 [[dependencies.${mod_id}]]
     modId="apotheosis"
     mandatory=false
-    versionRange="[0,)"
+    versionRange="[7.4,8)"
+    ordering="AFTER"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="placebo"
+    mandatory=false
+    versionRange="[8.6,9)"
     ordering="AFTER"
     side="BOTH"
 
